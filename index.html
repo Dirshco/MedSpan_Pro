@@ -1,0 +1,1261 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
+
+// Ensure global variables are defined, or provide fallbacks for local development
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// --- Firebase Initialization and Context ---
+let app;
+let db;
+let auth;
+
+// Initialize Firebase only once
+if (Object.keys(firebaseConfig).length > 0) {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+}
+
+// --- Course Content Data ---
+const courseContent = {
+    week1: {
+        title: "Foundations & Cognates (The 'Cognate Challenge')",
+        vocabulary: [
+            { spanish: "Hola", english: "Hello" },
+            { spanish: "Buenos días", english: "Good morning" },
+            { spanish: "Gracias", english: "Thank you" },
+            { spanish: "Paciente", english: "Patient" },
+            { spanish: "Doctor", english: "Doctor" },
+            { spanish: "Hospital", english: "Hospital" },
+            { spanish: "Infección", english: "Infection" },
+            { spanish: "Síntoma", english: "Symptom" },
+            { spanish: "Diagnóstico", english: "Diagnosis" },
+            { spanish: "Temperatura", english: "Temperature" },
+        ],
+        sentences: [
+            "Hola, ¿cómo está?",
+            "Gracias, doctor.",
+            "Soy el paciente.",
+            "Tengo un síntoma.",
+            "Es una infección.",
+        ],
+        exercises: [
+            { id: "cognate-match", type: "match", title: "Cognate Match", pairs: [
+                { spanish: "Paciente", english: "Patient" }, { spanish: "Infección", english: "Infection" },
+                { spanish: "Hospital", english: "Hospital" }, { spanish: "Síntoma", english: "Symptom" }
+            ]},
+            { id: "greeting-quiz", type: "quiz", title: "Greeting Quiz", questions: [
+                { q: "How do you say 'Good morning'?", a: "Buenos días", options: ["Buenos días", "Buenas tardes", "Buenas noches"] },
+                { q: "What does 'Gracias' mean?", a: "Thank you", options: ["Hello", "Thank you", "Please"] }
+            ]}
+        ],
+        challenge: "Complete the 'Cognate Match' and 'Greeting Quiz' exercises.",
+    },
+    week2: {
+        title: "Body Parts & Simple Commands (The 'Anatomy Scavenger Hunt')",
+        vocabulary: [
+            { spanish: "Cabeza", english: "Head" },
+            { spanish: "Ojo", english: "Eye" },
+            { spanish: "Oído", english: "Ear" },
+            { spanish: "Nariz", english: "Nose" },
+            { spanish: "Boca", english: "Mouth" },
+            { spanish: "Garganta", english: "Throat" },
+            { spanish: "Cuello", english: "Neck" },
+            { spanish: "Hombro", english: "Shoulder" },
+            { spanish: "Brazo", english: "Arm" },
+            { spanish: "Mano", english: "Hand" },
+            { spanish: "Dedo", english: "Finger/Toe" },
+            { spanish: "Pecho", english: "Chest" },
+            { spanish: "Estómago", english: "Stomach" },
+            { spanish: "Abdomen", english: "Abdomen" },
+            { spanish: "Espalda", english: "Back" },
+            { spanish: "Pierna", english: "Leg" },
+            { spanish: "Rodilla", english: "Knee" },
+            { spanish: "Pie", english: "Foot" },
+            { spanish: "Dolor", english: "Pain" },
+            { spanish: "Respire hondo", english: "Breathe deeply" },
+            { spanish: "Abra la boca", english: "Open your mouth" },
+            { spanish: "Saque la lengua", english: "Stick out your tongue" },
+            { spanish: "Siéntese", english: "Sit down" },
+            { spanish: "Acúestese", english: "Lie down" },
+            { spanish: "Levántese", english: "Stand up" },
+        ],
+        sentences: [
+            "Me duele la cabeza.",
+            "Tengo dolor en el estómago.",
+            "Respire hondo, por favor.",
+            "Abra la boca y diga 'Ah'.",
+            "Siéntese aquí, por favor.",
+            "Acúestese en la camilla.",
+            "Levántese despacio.",
+            "¿Dónde le duele?",
+        ],
+        exercises: [
+            { id: "body-part-labeling", type: "label", title: "Body Part Labeling", items: [
+                { spanish: "Cabeza", english: "Head" },
+                { spanish: "Pecho", english: "Chest" },
+                { spanish: "Estómago", english: "Stomach" },
+                { spanish: "Pierna", english: "Leg" },
+                { spanish: "Mano", english: "Hand" },
+                { spanish: "Ojo", english: "Eye" }
+            ]},
+            { id: "command-quiz", type: "quiz", title: "Command Quiz", questions: [
+                { q: "What does 'Abra la boca' mean?", a: "Open your mouth", options: ["Close your eyes", "Open your mouth", "Touch your nose"] },
+                { q: "How do you say 'Stand up'?", a: "Levántese", options: ["Siéntese", "Acúestese", "Levántese"] },
+                { q: "What is 'Respire hondo'?", a: "Breathe deeply", options: ["Cough hard", "Breathe deeply", "Hold your breath"] }
+            ]}
+        ],
+        challenge: "Successfully complete the 'Body Part Labeling' and 'Command Quiz'.",
+    },
+    week3: {
+        title: "History Taking Basics (The 'Patient Interview Quest')",
+        vocabulary: [
+            { spanish: "¿Cuál es su queja principal?", english: "What is your main complaint?" },
+            { spanish: "¿Cuándo empezó?", english: "When did it start?" },
+            { spanish: "¿Dónde le duele?", english: "Where does it hurt?" },
+            { spanish: "¿Cuánto tiempo hace que tiene el dolor?", english: "How long have you had the pain?" },
+            { spanish: "Fuerte", english: "Strong" },
+            { spanish: "Leve", english: "Mild" },
+        ],
+        sentences: [
+            "¿Qué le trae por aquí hoy?",
+            "El dolor empezó ayer.",
+            "Me duele la espalda.",
+            "Es un dolor leve.",
+        ],
+        exercises: [
+            { id: "question-builder", type: "builder", title: "Question Builder", phrases: [
+                "¿Cuál es", "su queja", "principal?"
+            ]},
+            { id: "history-scenario-1", type: "roleplay_prep", title: "History Scenario Prep", scenario: "A patient reports chest pain. Prepare 3 questions to ask." }
+        ],
+        challenge: "Practice a basic patient history role-play using the learned questions.",
+    },
+    week4: {
+        title: "Systems Review & Medications (The 'Systems Detective')",
+        vocabulary: [
+            { spanish: "Medicamentos", english: "Medications" },
+            { spanish: "Alergias", english: "Allergies" },
+            { spanish: "Falta de aire", english: "Shortness of breath" },
+            { spanish: "Estreñimiento", english: "Constipation" },
+            { spanish: "Diarrea", english: "Diarrea" },
+            { spanish: "Cardíaco", english: "Cardiac" },
+            { spanish: "Respiratorio", english: "Respiratory" },
+        ],
+        sentences: [
+            "¿Toma algún medicamento?",
+            "¿Tiene alguna alergia?",
+            "¿Ha tenido falta de aire?",
+            "Revisemos su sistema respiratorio.",
+        ],
+        exercises: [
+            { id: "medication-recall", type: "list", title: "Medication Recall", items: ["Medicamentos", "Pastillas", "Dosis", "Receta"] },
+            { id: "ros-quiz", type: "quiz", title: "ROS Quiz", questions: [
+                { q: "What system is 'Dolor en el pecho' related to?", a: "Cardiac", options: ["Cardiac", "Digestive", "Neurological"] }
+            ]}
+        ],
+        challenge: "Perform a Systems Review role-play, including medication history.",
+    },
+    week5: {
+        title: "Explanations & Instructions (The 'Clear Communication Challenge')",
+        vocabulary: [
+            { spanish: "Usted tiene...", english: "You have..." },
+            { spanish: "Necesita tomar este medicamento", english: "You need to take this medication" },
+            { spanish: "Vuelva en una semana", english: "Come back in one week" },
+            { spanish: "Si los síntomas empeoran", english: "If symptoms worsen" },
+            { spanish: "Descanse", english: "Rest" },
+            { spanish: "Efectos secundarios", english: "Side effects" },
+        ],
+        sentences: [
+            "Usted tiene una infección leve.",
+            "Es importante que descanse.",
+            "Tome esta pastilla dos veces al día.",
+            "Llámeme si tiene preguntas.",
+        ],
+        exercises: [
+            { id: "explanation-builder", type: "builder", title: "Explanation Builder", phrases: [
+                "Usted tiene", "una infección", "viral."
+            ]},
+            { id: "instruction-scenario", type: "roleplay_prep", title: "Instruction Scenario", scenario: "Explain how to take a new antibiotic (e.g., 'Take 1 pill every 8 hours for 7 days')." }
+        ],
+        challenge: "Explain a diagnosis and treatment plan to a 'patient' clearly.",
+    },
+    week6: {
+        title: "Advanced Scenarios & Cultural Nuances (The 'Grand Rounds Simulation')",
+        vocabulary: [
+            { spanish: "Embarazo", english: "Pregnancy" },
+            { spanish: "Salud mental", english: "Mental health" },
+            { spanish: "Llame al 911", english: "Call 911" },
+            { spanish: "Creencias", english: "Beliefs" },
+            { spanish: "Respeto", english: "Respect" },
+            { spanish: "Insuficiencia cardíaca", english: "Heart failure" },
+            { spanish: "Accidente cerebrovascular", english: "Stroke" },
+        ],
+        sentences: [
+            "Hablemos de su salud mental.",
+            "Es importante respetar sus creencias.",
+            "Esto es una emergencia, necesitamos llamar al 911.",
+            "¿Hay algo más que le preocupe?",
+        ],
+        exercises: [
+            { id: "sensitive-topic-discussion", type: "discussion_prompt", title: "Sensitive Topic Discussion", prompt: "Discuss how to approach a patient about mental health concerns respectfully." },
+            { id: "emergency-phrases", type: "list", title: "Emergency Phrases", items: ["Llame al 911", "Necesita atención inmediata", "Está en peligro"] }
+        ],
+        challenge: "Participate in a 'Grand Rounds Simulation' role-play covering a complex case with cultural considerations.",
+    },
+};
+
+const prizes = [
+    { id: "prize1", name: "First Cognate Prize", points: 20, description: "You mastered your first words!" },
+    { id: "prize2", name: "Anatomy Ace", points: 50, description: "You know your body parts!" },
+    { id: "prize3", name: "History Hero", points: 100, description: "You can take a focused history!" },
+    { id: "prize4", name: "Systems Savant", points: 150, description: "You've reviewed all the systems!" },
+    { id: "prize5", name: "Communication Champion", points: 200, description: "You explain diagnoses like a pro!" },
+    { id: "prize6", name: "Cultural Competence Star", points: 250, description: "You're ready for advanced scenarios!" },
+];
+
+// --- Utility Components ---
+
+const LoadingSpinner = () => (
+    <div className="flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+    </div>
+);
+
+const MessageModal = ({ message, onClose }) => {
+    if (!message) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm w-full text-center">
+                <p className="text-lg font-semibold text-gray-800 mb-4">{message}</p>
+                <button
+                    onClick={onClose}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    OK
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// --- Main App Component ---
+export default function App() {
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [userData, setUserData] = useState(null);
+    const [currentView, setCurrentView] = useState('home'); // 'home', 'weekX', 'rolePlay', 'generalTips'
+    const [message, setMessage] = useState('');
+
+    const showMessage = (msg) => {
+        setMessage(msg);
+    };
+
+    const clearMessage = () => {
+        setMessage('');
+    };
+
+    // Firebase Auth and User Data Listener
+    useEffect(() => {
+        if (!auth || !db) {
+            console.error("Firebase not initialized.");
+            return;
+        }
+
+        const signIn = async () => {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase authentication error:", error);
+                showMessage(`Authentication error: ${error.message}`);
+            }
+        };
+
+        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                const currentUid = user.uid;
+                setUserId(currentUid);
+                setIsAuthReady(true);
+
+                // Listen for user data changes
+                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUid}/data/profile`);
+                const unsubscribeUser = onSnapshot(userDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setUserData(docSnap.data());
+                    } else {
+                        // Initialize new user data
+                        setDoc(userDocRef, {
+                            currentWeek: 1,
+                            points: 0,
+                            prizes: [],
+                            completedExercises: {},
+                            lastUpdated: serverTimestamp()
+                        });
+                        setUserData({ currentWeek: 1, points: 0, prizes: [], completedExercises: {} });
+                    }
+                }, (error) => {
+                    console.error("Error listening to user data:", error);
+                    showMessage(`Error loading user data: ${error.message}`);
+                });
+
+                return () => unsubscribeUser(); // Cleanup user data listener
+            } else {
+                setUserId(null);
+                setUserData(null);
+                setIsAuthReady(true); // Still ready, but no user logged in
+                signIn(); // Attempt to sign in if not already
+            }
+        });
+
+        return () => unsubscribeAuth(); // Cleanup auth listener
+    }, [initialAuthToken]); // Re-run if initialAuthToken changes
+
+    // Function to update user progress
+    const updateProgress = useCallback(async (newPoints, completedExerciseId, week) => {
+        if (!userId || !db) {
+            showMessage("User not authenticated or Firestore not ready.");
+            return;
+        }
+
+        const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/data/profile`);
+        try {
+            const currentData = userData || { points: 0, completedExercises: {}, prizes: [] };
+            const updatedPoints = currentData.points + newPoints;
+
+            const updatedCompletedExercises = { ...currentData.completedExercises };
+            if (!updatedCompletedExercises[`week${week}`]) {
+                updatedCompletedExercises[`week${week}`] = [];
+            }
+            if (completedExerciseId && !updatedCompletedExercises[`week${week}`].includes(completedExerciseId)) {
+                updatedCompletedExercises[`week${week}`].push(completedExerciseId);
+            }
+
+            const newPrizes = [...currentData.prizes];
+            prizes.forEach(prize => {
+                if (updatedPoints >= prize.points && !newPrizes.includes(prize.id)) {
+                    newPrizes.push(prize.id);
+                    showMessage(`Congratulations! You earned the "${prize.name}" prize!`);
+                }
+            });
+
+            await updateDoc(userDocRef, {
+                points: updatedPoints,
+                completedExercises: updatedCompletedExercises,
+                prizes: newPrizes,
+                lastUpdated: serverTimestamp()
+            });
+        } catch (error) {
+            console.error("Error updating user progress:", error);
+            showMessage(`Error updating progress: ${error.message}`);
+        }
+    }, [userId, db, userData]);
+
+    const advanceWeek = useCallback(async () => {
+        if (!userId || !db || !userData) {
+            showMessage("User data not loaded or Firestore not ready.");
+            return;
+        }
+        const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/data/profile`);
+        const nextWeek = userData.currentWeek + 1;
+        if (nextWeek <= 6) {
+            try {
+                await updateDoc(userDocRef, { currentWeek: nextWeek, lastUpdated: serverTimestamp() });
+                showMessage(`Congratulations! You advanced to Week ${nextWeek}!`);
+            } catch (error) {
+                console.error("Error advancing week:", error);
+                showMessage(`Error advancing week: ${error.message}`);
+            }
+        } else {
+            showMessage("You have completed all weeks! Keep practicing!");
+        }
+    }, [userId, db, userData]);
+
+    if (!isAuthReady) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+                <LoadingSpinner />
+                <p className="ml-4">Loading application...</p>
+            </div>
+        );
+    }
+
+    if (!userId || !userData) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+                <LoadingSpinner />
+                <p className="ml-4">Authenticating and loading user data...</p>
+            </div>
+        );
+    }
+
+    const currentWeekData = courseContent[`week${userData.currentWeek}`];
+
+    // --- Views based on currentView state ---
+    const renderContent = () => {
+        if (currentView === 'home') {
+            return (
+                <div className="p-6 space-y-6">
+                    <h2 className="text-3xl font-bold text-center text-blue-100">Welcome, IM Physician!</h2>
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg text-center">
+                        <p className="text-xl text-blue-200 mb-2">Current Week: <span className="font-semibold text-white">Week {userData.currentWeek}</span></p>
+                        <p className="text-xl text-blue-200">Points: <span className="font-semibold text-white">{userData.points}</span></p>
+                        <div className="mt-4">
+                            <h3 className="text-lg font-semibold text-blue-200 mb-2">Your Prizes:</h3>
+                            {userData.prizes.length > 0 ? (
+                                <ul className="list-disc list-inside text-blue-300">
+                                    {userData.prizes.map(prizeId => {
+                                        const prize = prizes.find(p => p.id === prizeId);
+                                        return prize ? <li key={prize.id}>{prize.name}</li> : null;
+                                    })}
+                                </ul>
+                            ) : (
+                                <p className="text-blue-300">No prizes yet. Keep learning!</p>
+                            )}
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={() => setCurrentView(`week${userData.currentWeek}`)}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        Go to Week {userData.currentWeek}
+                    </button>
+
+                    {userData.currentWeek < 6 && (
+                        <button
+                            onClick={advanceWeek}
+                            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                        >
+                            Advance to Next Week
+                        </button>
+                    )}
+
+                    <button
+                        onClick={() => setCurrentView('rolePlay')}
+                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        Start Role Play
+                    </button>
+
+                    <button
+                        onClick={() => setCurrentView('generalTips')}
+                        className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        General Learning Tips
+                    </button>
+                    <p className="text-sm text-gray-400 text-center mt-4">Your User ID: <span className="font-mono break-all">{userId}</span></p>
+                </div>
+            );
+        } else if (currentView.startsWith('week')) {
+            const weekNum = parseInt(currentView.replace('week', ''));
+            const weekData = courseContent[`week${weekNum}`];
+            if (!weekData) return <p className="text-red-500 text-center">Week content not found.</p>;
+
+            const completedExercisesForWeek = userData.completedExercises[`week${weekNum}`] || [];
+
+            return (
+                <div className="p-6 space-y-6">
+                    <button
+                        onClick={() => setCurrentView('home')}
+                        className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out mb-4"
+                    >
+                        ← Back to Home
+                    </button>
+                    <h2 className="text-3xl font-bold text-center text-blue-100">{weekData.title}</h2>
+
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-semibold text-blue-200 mb-3">Weekly Challenge:</h3>
+                        <p className="text-white">{weekData.challenge}</p>
+                    </div>
+
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-semibold text-blue-200 mb-3">Vocabulary:</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {weekData.vocabulary.map((item, index) => (
+                                <div key={index} className="bg-blue-700 p-3 rounded-lg flex justify-between items-center">
+                                    <span className="text-white font-medium">{item.spanish}</span>
+                                    <span className="text-blue-200 text-sm">({item.english})</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-semibold text-blue-200 mb-3">Sentences:</h3>
+                        <ul className="list-disc list-inside text-white space-y-2">
+                            {weekData.sentences.map((sentence, index) => (
+                                <li key={index}>{sentence}</li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-semibold text-blue-200 mb-3">Exercises:</h3>
+                        <div className="space-y-4">
+                            {weekData.exercises.map(exercise => (
+                                <ExerciseCard
+                                    key={exercise.id}
+                                    exercise={exercise}
+                                    onComplete={(points) => updateProgress(points, exercise.id, weekNum)}
+                                    isCompleted={completedExercisesForWeek.includes(exercise.id)}
+                                    showMessage={showMessage}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        } else if (currentView === 'rolePlay') {
+            return (
+                <RolePlay
+                    userId={userId}
+                    db={db}
+                    appId={appId}
+                    onBack={() => setCurrentView('home')}
+                    showMessage={showMessage}
+                />
+            );
+        } else if (currentView === 'generalTips') {
+            return (
+                <div className="p-6 space-y-6">
+                    <button
+                        onClick={() => setCurrentView('home')}
+                        className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out mb-4"
+                    >
+                        ← Back to Home
+                    </button>
+                    <h2 className="text-3xl font-bold text-center text-blue-100">General Learning Methods & Game-Like Elements</h2>
+                    <div className="bg-blue-800 p-4 rounded-lg shadow-lg text-white space-y-4">
+                        <p className="font-semibold text-lg">Daily Micro-Learning:</p>
+                        <p>Dedicate 10-15 minutes daily to review flashcards, listen to a short medical Spanish podcast, or practice a few phrases. Consistency is key!</p>
+
+                        <p className="font-semibold text-lg">Spaced Repetition Systems (SRS):</p>
+                        <p>Utilize apps like Anki or Quizlet for vocabulary and phrase memorization.</p>
+
+                        <p className="font-semibold text-lg">Immersion:</p>
+                        <ul className="list-disc list-inside ml-4">
+                            <li>Listen to medical Spanish podcasts (e.g., "Medical Spanish Podcast" by Dr. Mike Natter).</li>
+                            <li>Watch medical shows or documentaries in Spanish with subtitles.</li>
+                            <li>Change your phone's language to Spanish for a few hours a day.</li>
+                        </ul>
+
+                        <p className="font-semibold text-lg">Role-Playing:</p>
+                        <p>Practice with colleagues, friends, or even talk to yourself in the mirror. Record yourself and listen back. (Use the 'Start Role Play' feature in this app!)</p>
+
+                        <p className="font-semibold text-lg">"Gamify" Progress:</p>
+                        <ul className="list-disc list-inside ml-4">
+                            <li>Points System: Assign points for learning new words, completing drills, or successful role-plays.</li>
+                            <li>Weekly Challenges: End each week with a small quiz or a practical scenario to "level up."</li>
+                            <li>Leaderboard (Optional): If learning with a group, create a friendly leaderboard for motivation.</li>
+                            <li>Reward System: Set small personal rewards for achieving weekly goals.</li>
+                        </ul>
+
+                        <p className="font-semibold text-lg">Utilize Apps:</p>
+                        <p>Duolingo, Babbel, Memrise can supplement, but focus on medical-specific resources.</p>
+
+                        <p className="font-semibold text-lg">Language Exchange Partners:</p>
+                        <p>If possible, find a native Spanish speaker interested in learning English for mutual practice.</p>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-900 text-white font-inter flex flex-col items-center p-4">
+            <div className="w-full max-w-md bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
+                <header className="bg-gradient-to-r from-blue-600 to-blue-800 p-4 text-center rounded-t-xl shadow-inner">
+                    <h1 className="text-4xl font-extrabold text-white tracking-wide">
+                        <i className="fas fa-stethoscope mr-2"></i>MedSpan Pro
+                    </h1>
+                    <p className="text-blue-200 text-sm mt-1">Medical Spanish for IMs</p>
+                </header>
+                <main className="p-4">
+                    {renderContent()}
+                </main>
+            </div>
+            <MessageModal message={message} onClose={clearMessage} />
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"></link>
+        </div>
+    );
+}
+
+// --- Exercise Components ---
+
+const ExerciseCard = ({ exercise, onComplete, isCompleted, showMessage }) => {
+    const pointsAwarded = 10; // Points for completing an exercise
+
+    // This function is called by the specific exercise component (e.g., MatchExercise)
+    // when *that specific exercise* is successfully completed.
+    const handleInternalExerciseCompletion = useCallback(() => {
+        if (!isCompleted) { // Only award points if not already completed in Firestore
+            onComplete(pointsAwarded); // Call the parent onComplete (from App)
+            showMessage(`Exercise completed! You earned ${pointsAwarded} points.`);
+        } else {
+            // If it's already completed in Firestore, this is a re-practice
+            showMessage("You've completed this exercise before. Keep practicing!");
+        }
+    }, [isCompleted, onComplete, showMessage, pointsAwarded]);
+
+    let exerciseComponent;
+    switch (exercise.type) {
+        case 'match':
+            exerciseComponent = <MatchExercise pairs={exercise.pairs} onComplete={handleInternalExerciseCompletion} />;
+            break;
+        case 'quiz':
+            exerciseComponent = <QuizExercise questions={exercise.questions} onComplete={handleInternalExerciseCompletion} showMessage={showMessage} />;
+            break;
+        case 'label':
+            exerciseComponent = <LabelExercise items={exercise.items} onComplete={handleInternalExerciseCompletion} showMessage={showMessage} />;
+            break;
+        case 'builder':
+            exerciseComponent = <SentenceBuilder phrases={exercise.phrases} onComplete={handleInternalExerciseCompletion} showMessage={showMessage} />;
+            break;
+        case 'list':
+        case 'roleplay_prep':
+        case 'discussion_prompt':
+            exerciseComponent = (
+                <div className="p-4 bg-blue-700 rounded-lg">
+                    <h4 className="text-lg font-semibold text-blue-100 mb-2">{exercise.title}</h4>
+                    <p className="text-blue-200 mb-3">
+                        {exercise.type === 'list' && "Review these key terms:"}
+                        {exercise.type === 'roleplay_prep' && exercise.scenario}
+                        {exercise.type === 'discussion_prompt' && exercise.prompt}
+                    </p>
+                    <button
+                        onClick={handleInternalExerciseCompletion}
+                        // The button should always be clickable to "practice again" or "mark as reviewed"
+                        // It will only award points once (checked inside handleInternalExerciseCompletion)
+                        className={`mt-4 w-full py-2 px-4 rounded-lg font-bold transition duration-300 ease-in-out ${
+                            isCompleted ? 'bg-green-500' : 'bg-blue-500 hover:bg-blue-600'
+                        } text-white`}
+                    >
+                        {isCompleted ? 'Completed (Practice Again)' : 'Mark as Reviewed'}
+                    </button>
+                </div>
+            );
+            break;
+        default:
+            exerciseComponent = <p className="text-red-400">Unknown exercise type: {exercise.type}</p>;
+    }
+
+    return (
+        <div className="bg-blue-700 p-4 rounded-lg shadow-md">
+            <h3 className="text-xl font-semibold text-blue-100 mb-3">{exercise.title}</h3>
+            {exerciseComponent}
+        </div>
+    );
+};
+
+// --- Specific Exercise Implementations ---
+
+const MatchExercise = ({ pairs, onComplete }) => {
+    const [selectedSpanish, setSelectedSpanish] = useState(null);
+    const [selectedEnglish, setSelectedEnglish] = useState(null);
+    const [matchedPairs, setMatchedPairs] = useState([]);
+    const [shuffledSpanish, setShuffledSpanish] = useState([]);
+    const [shuffledEnglish, setShuffledEnglish] = useState([]);
+    const [isExerciseCompleteLocally, setIsExerciseCompleteLocally] = useState(false); // Local state for this exercise completion
+
+    const initializeExercise = useCallback(() => {
+        setShuffledSpanish([...pairs].sort(() => Math.random() - 0.5));
+        setShuffledEnglish([...pairs].sort(() => Math.random() - 0.5));
+        setSelectedSpanish(null);
+        setSelectedEnglish(null);
+        setMatchedPairs([]);
+        setIsExerciseCompleteLocally(false);
+    }, [pairs]);
+
+    useEffect(() => {
+        initializeExercise();
+    }, [pairs, initializeExercise]);
+
+    useEffect(() => {
+        if (matchedPairs.length === pairs.length && !isExerciseCompleteLocally) {
+            setIsExerciseCompleteLocally(true); // Mark local completion
+            onComplete(); // Notify parent (ExerciseCard) only once per successful completion
+        }
+    }, [matchedPairs, pairs.length, onComplete, isExerciseCompleteLocally]);
+
+    const handleSpanishClick = (pair) => {
+        if (isExerciseCompleteLocally) return; // Prevent interaction if already completed
+        setSelectedSpanish(pair);
+        if (selectedEnglish) {
+            checkMatch(pair, selectedEnglish);
+        }
+    };
+
+    const handleEnglishClick = (pair) => {
+        if (isExerciseCompleteLocally) return; // Prevent interaction if already completed
+        setSelectedEnglish(pair);
+        if (selectedSpanish) {
+            checkMatch(selectedSpanish, pair);
+        }
+    };
+
+    const checkMatch = (sPair, ePair) => {
+        if (sPair.spanish === ePair.spanish && !matchedPairs.some(p => p.spanish === sPair.spanish)) {
+            setMatchedPairs(prev => [...prev, sPair]);
+            setSelectedSpanish(null);
+            setSelectedEnglish(null);
+        } else {
+            // Incorrect match, reset selections
+            setSelectedSpanish(null);
+            setSelectedEnglish(null);
+        }
+    };
+
+    const isMatched = (pair) => matchedPairs.some(p => p.spanish === pair.spanish);
+    const isSelectedSpanish = (pair) => selectedSpanish && selectedSpanish.spanish === pair.spanish;
+    const isSelectedEnglish = (pair) => selectedEnglish && selectedEnglish.spanish === pair.spanish;
+
+    return (
+        <div className="grid grid-cols-2 gap-4 p-4 bg-blue-700 rounded-lg">
+            <div className="space-y-2">
+                {shuffledSpanish.map((pair, index) => (
+                    <button
+                        key={`s-${index}`}
+                        onClick={() => handleSpanishClick(pair)}
+                        disabled={isMatched(pair) || isExerciseCompleteLocally} // Disable if matched or overall complete
+                        className={`w-full py-2 px-3 rounded-lg font-bold transition duration-200 ease-in-out
+                            ${isMatched(pair) ? 'bg-green-500 text-white cursor-not-allowed' :
+                               isSelectedSpanish(pair) ? 'bg-blue-400 text-white' :
+                               'bg-blue-500 hover:bg-blue-600 text-white'
+                            }`}
+                    >
+                        {pair.spanish}
+                    </button>
+                ))}
+            </div>
+            <div className="space-y-2">
+                {shuffledEnglish.map((pair, index) => (
+                    <button
+                        key={`e-${index}`}
+                        onClick={() => handleEnglishClick(pair)}
+                        disabled={isMatched(pair) || isExerciseCompleteLocally} // Disable if matched or overall complete
+                        className={`w-full py-2 px-3 rounded-lg font-bold transition duration-200 ease-in-out
+                            ${isMatched(pair) ? 'bg-green-500 text-white cursor-not-allowed' :
+                               isSelectedEnglish(pair) ? 'bg-blue-400 text-white' :
+                               'bg-blue-500 hover:bg-blue-600 text-white'
+                            }`}
+                    >
+                        {pair.english}
+                    </button>
+                ))}
+            </div>
+            {matchedPairs.length === pairs.length && (
+                <p className="col-span-2 text-center text-green-300 font-semibold mt-2">All matched! Excellent!</p>
+            )}
+            {isExerciseCompleteLocally && ( // Show "Practice Again" button if locally completed
+                <button
+                    onClick={initializeExercise} // Reset button
+                    className="col-span-2 mt-4 w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    Practice Again
+                </button>
+            )}
+        </div>
+    );
+};
+
+const QuizExercise = ({ questions, onComplete, showMessage }) => {
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [score, setScore] = useState(0);
+    const [showResults, setShowResults] = useState(false);
+    const [selectedOption, setSelectedOption] = useState(null);
+
+    const handleAnswer = (option) => {
+        setSelectedOption(option);
+        if (option === questions[currentQuestionIndex].a) {
+            setScore(prev => prev + 1);
+        }
+    };
+
+    const resetQuiz = () => {
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setShowResults(false);
+        setSelectedOption(null);
+    };
+
+    const nextQuestion = () => {
+        if (currentQuestionIndex < questions.length - 1) {
+            setCurrentQuestionIndex(prev => prev + 1);
+            setSelectedOption(null);
+        } else {
+            setShowResults(true);
+            onComplete(); // Mark exercise as complete when quiz finishes
+        }
+    };
+
+    const currentQuestion = questions[currentQuestionIndex];
+    const shuffledOptions = useRef([]);
+
+    useEffect(() => {
+        shuffledOptions.current = [...currentQuestion.options].sort(() => Math.random() - 0.5);
+    }, [currentQuestionIndex, currentQuestion.options]);
+
+    if (showResults) {
+        return (
+            <div className="p-4 bg-blue-700 rounded-lg text-center">
+                <h4 className="text-lg font-semibold text-blue-100 mb-2">Quiz Results</h4>
+                <p className="text-white text-xl mb-4">You scored {score} out of {questions.length}!</p>
+                <button
+                    onClick={resetQuiz}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    Retake Quiz
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-4 bg-blue-700 rounded-lg">
+            <h4 className="text-lg font-semibold text-blue-100 mb-2">Quiz: Question {currentQuestionIndex + 1}/{questions.length}</h4>
+            <p className="text-white text-lg mb-4">{currentQuestion.q}</p>
+            <div className="space-y-2">
+                {shuffledOptions.current.map((option, index) => (
+                    <button
+                        key={index}
+                        onClick={() => handleAnswer(option)}
+                        disabled={selectedOption !== null}
+                        className={`w-full py-2 px-3 rounded-lg font-bold transition duration-200 ease-in-out
+                            ${selectedOption === option ?
+                                (option === currentQuestion.a ? 'bg-green-500' : 'bg-red-500') :
+                                'bg-blue-500 hover:bg-blue-600'
+                            } text-white`}
+                    >
+                        {option}
+                    </button>
+                ))}
+            </div>
+            {selectedOption && (
+                <button
+                    onClick={nextQuestion}
+                    className="mt-4 w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                </button>
+            )}
+        </div>
+    );
+};
+
+const LabelExercise = ({ items, onComplete, showMessage }) => {
+    const [correctCount, setCorrectCount] = useState(0);
+    const [answers, setAnswers] = useState(items.reduce((acc, item) => ({ ...acc, [item.english]: '' }), {}));
+    const [submitted, setSubmitted] = useState(false);
+
+    const handleChange = (englishTerm, value) => {
+        setAnswers(prev => ({ ...prev, [englishTerm]: value }));
+    };
+
+    const handleSubmit = () => {
+        let correct = 0;
+        items.forEach(item => {
+            if (answers[item.english].toLowerCase().trim() === item.spanish.toLowerCase().trim()) {
+                correct++;
+            }
+        });
+        setCorrectCount(correct);
+        setSubmitted(true);
+        if (correct === items.length) {
+            onComplete();
+            showMessage("Great job! All labels are correct!");
+        } else {
+            showMessage(`You got ${correct} out of ${items.length} correct. Keep practicing!`);
+        }
+    };
+
+    const handleReset = () => {
+        setSubmitted(false);
+        setAnswers(items.reduce((acc, item) => ({ ...acc, [item.english]: '' }), {}));
+    };
+
+    return (
+        <div className="p-4 bg-blue-700 rounded-lg">
+            <h4 className="text-lg font-semibold text-blue-100 mb-2">Label the English Terms in Spanish</h4>
+            <div className="space-y-3 mb-4">
+                {items.map((item, index) => (
+                    <div key={index} className="flex flex-col">
+                        <label className="text-white mb-1">{item.english}:</label>
+                        <input
+                            type="text"
+                            value={answers[item.english]}
+                            onChange={(e) => handleChange(item.english, e.target.value)}
+                            className="p-2 rounded-lg bg-blue-600 text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="Enter Spanish term"
+                            disabled={submitted}
+                        />
+                        {submitted && (
+                            <p className={`text-sm mt-1 ${
+                                answers[item.english].toLowerCase().trim() === item.spanish.toLowerCase().trim()
+                                    ? 'text-green-300' : 'text-red-300'
+                            }`}>
+                                Correct: {item.spanish}
+                            </p>
+                        )}
+                    </div>
+                ))}
+            </div>
+            {!submitted ? (
+                <button
+                    onClick={handleSubmit}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    Check Answers
+                </button>
+            ) : (
+                <button
+                    onClick={handleReset}
+                    className="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                >
+                    Try Again
+                </button>
+            )}
+        </div>
+    );
+};
+
+const SentenceBuilder = ({ phrases, onComplete, showMessage }) => {
+    const [shuffledPhrases, setShuffledPhrases] = useState([]);
+    const [selectedOrder, setSelectedOrder] = useState([]);
+    const [submitted, setSubmitted] = useState(false);
+
+    useEffect(() => {
+        setShuffledPhrases([...phrases].sort(() => Math.random() - 0.5));
+    }, [phrases]);
+
+    const handlePhraseClick = (phrase) => {
+        if (!submitted) {
+            setSelectedOrder(prev => [...prev, phrase]);
+            setShuffledPhrases(prev => prev.filter(p => p !== phrase));
+        }
+    };
+
+    const handleReset = () => {
+        setSelectedOrder([]);
+        setShuffledPhrases([...phrases].sort(() => Math.random() - 0.5));
+        setSubmitted(false);
+    };
+
+    const handleSubmit = () => {
+        const correctSentence = phrases.join(' ').trim();
+        const userSentence = selectedOrder.join(' ').trim();
+        setSubmitted(true);
+        if (correctSentence === userSentence) {
+            onComplete();
+            showMessage("Perfect! You built the sentence correctly!");
+        } else {
+            showMessage("Not quite right. Try again!");
+        }
+    };
+
+    const isCorrect = submitted && selectedOrder.join(' ').trim() === phrases.join(' ').trim();
+
+    return (
+        <div className="p-4 bg-blue-700 rounded-lg">
+            <h4 className="text-lg font-semibold text-blue-100 mb-2">Build the Sentence:</h4>
+            <p className="text-white mb-4">Click the words in the correct order.</p>
+
+            <div className="bg-blue-600 p-3 rounded-lg min-h-[60px] flex flex-wrap gap-2 items-center mb-4 border border-blue-500">
+                {selectedOrder.map((phrase, index) => (
+                    <span key={index} className="bg-blue-400 text-white px-3 py-1 rounded-full text-sm">
+                        {phrase}
+                    </span>
+                ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+                {shuffledPhrases.map((phrase, index) => (
+                    <button
+                        key={index}
+                        onClick={() => handlePhraseClick(phrase)}
+                        disabled={submitted}
+                        className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded-lg shadow transition duration-200 ease-in-out"
+                    >
+                        {phrase}
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex gap-2">
+                {!submitted ? (
+                    <button
+                        onClick={handleSubmit}
+                        disabled={selectedOrder.length !== phrases.length}
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                    >
+                        Check
+                    </button>
+                ) : (
+                    <button
+                        onClick={handleReset}
+                        className="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out"
+                    >
+                        Reset
+                    </button>
+                )}
+            </div>
+            {submitted && (
+                <p className={`text-center mt-2 font-semibold ${isCorrect ? 'text-green-300' : 'text-red-300'}`}>
+                    {isCorrect ? 'Correct!' : `Incorrect. Correct sentence: ${phrases.join(' ')}`}
+                </p>
+            )}
+        </div>
+    );
+};
+
+
+// --- Role Play Component ---
+const RolePlay = ({ userId, db, appId, onBack, showMessage }) => {
+    const [partnerId, setPartnerId] = useState('');
+    const [rolePlaySession, setRolePlaySession] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [newMessage, setNewMessage] = useState('');
+    const messagesEndRef = useRef(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    // Listener for role play session
+    useEffect(() => {
+        if (!db || !userId) return;
+
+        let unsubscribe = () => {};
+
+        // Query for active or pending sessions involving this user
+        const q1 = query(collection(db, `artifacts/${appId}/public/data/rolePlays`),
+            where("user1Id", "==", userId),
+            where("status", "in", ["pending", "active"])
+        );
+        const q2 = query(collection(db, `artifacts/${appId}/public/data/rolePlays`),
+            where("user1Id", "==", partnerId), // Check if current user is user2 in a pending session
+            where("user2Id", "==", userId),
+            where("status", "in", ["pending", "active"])
+        );
+
+        const unsubscribe1 = onSnapshot(q1, (snapshot) => {
+            if (!snapshot.empty) {
+                const sessionDoc = snapshot.docs[0];
+                setRolePlaySession({ id: sessionDoc.id, ...sessionDoc.data() });
+                setMessages(sessionDoc.data().messages || []);
+            }
+        }, (error) => console.error("Error listening to role play sessions (q1):", error));
+
+        const unsubscribe2 = onSnapshot(q2, (snapshot) => {
+            if (!snapshot.empty) {
+                const sessionDoc = snapshot.docs[0];
+                setRolePlaySession({ id: sessionDoc.id, ...sessionDoc.data() });
+                setMessages(sessionDoc.data().messages || []);
+            }
+        }, (error) => console.error("Error listening to role play sessions (q2):", error));
+
+        return () => {
+            unsubscribe1();
+            unsubscribe2();
+            unsubscribe(); // Clean up message listener if it was set
+        };
+    }, [db, userId, appId, partnerId]); // Added partnerId to dependencies to react to its change
+
+    // Listener for messages within an active session
+    useEffect(() => {
+        if (rolePlaySession && rolePlaySession.id && db) {
+            const sessionDocRef = doc(db, `artifacts/${appId}/public/data/rolePlays`, rolePlaySession.id);
+            const unsubscribeMessages = onSnapshot(sessionDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    setMessages(docSnap.data().messages || []);
+                    setRolePlaySession(prev => ({ ...prev, status: docSnap.data().status })); // Update status
+                }
+            }, (error) => console.error("Error listening to messages:", error));
+            return () => unsubscribeMessages();
+        }
+    }, [rolePlaySession?.id, db, appId]);
+
+
+    const startRolePlay = async () => {
+        if (!partnerId || partnerId === userId) {
+            showMessage("Please enter a valid partner ID that is not your own.");
+            return;
+        }
+
+        const rolePlaysRef = collection(db, `artifacts/${appId}/public/data/rolePlays`);
+
+        // Check if a session already exists or is pending with this partner
+        const existingSessionQuery1 = query(rolePlaysRef,
+            where("user1Id", "==", userId),
+            where("user2Id", "==", partnerId),
+            where("status", "in", ["pending", "active"])
+        );
+        const existingSessionQuery2 = query(rolePlaysRef,
+            where("user1Id", "==", partnerId),
+            where("user2Id", "==", userId),
+            where("status", "in", ["pending", "active"])
+        );
+
+        try {
+            const [snapshot1, snapshot2] = await Promise.all([getDocs(existingSessionQuery1), getDocs(existingSessionQuery2)]);
+
+            if (!snapshot1.empty) {
+                const sessionDoc = snapshot1.docs[0];
+                await updateDoc(sessionDoc.ref, { status: "active" });
+                setRolePlaySession({ id: sessionDoc.id, ...sessionDoc.data(), status: "active" });
+                showMessage("Joined existing role play session.");
+                return;
+            }
+            if (!snapshot2.empty) {
+                const sessionDoc = snapshot2.docs[0];
+                await updateDoc(sessionDoc.ref, { status: "active" });
+                setRolePlaySession({ id: sessionDoc.id, ...sessionDoc.data(), status: "active" });
+                showMessage("Joined existing role play session.");
+                return;
+            }
+
+            // Create a new session if none found
+            const newSessionRef = await addDoc(rolePlaysRef, {
+                user1Id: userId,
+                user2Id: partnerId,
+                messages: [],
+                status: "pending", // Can be 'pending', 'active', 'finished'
+                createdAt: serverTimestamp(),
+            });
+            setRolePlaySession({ id: newSessionRef.id, user1Id: userId, user2Id: partnerId, messages: [], status: "pending" });
+            showMessage("Role play session initiated. Waiting for partner to join.");
+
+        } catch (error) {
+            console.error("Error starting role play:", error);
+            showMessage(`Error starting role play: ${error.message}`);
+        }
+    };
+
+    const sendMessage = async () => {
+        if (newMessage.trim() === '' || !rolePlaySession || !rolePlaySession.id) return;
+
+        const sessionDocRef = doc(db, `artifacts/${appId}/public/data/rolePlays`, rolePlaySession.id);
+        try {
+            const currentMessages = rolePlaySession.messages || [];
+            await updateDoc(sessionDocRef, {
+                messages: [...currentMessages, {
+                    text: newMessage,
+                    senderId: userId,
+                    timestamp: Date.now(),
+                }],
+                status: "active", // Ensure status is active once messages start flowing
+            });
+            setNewMessage('');
+        } catch (error) {
+            console.error("Error sending message:", error);
+            showMessage(`Error sending message: ${error.message}`);
+        }
+    };
+
+    const endRolePlay = async () => {
+        if (!rolePlaySession || !rolePlaySession.id) return;
+
+        const sessionDocRef = doc(db, `artifacts/${appId}/public/data/rolePlays`, rolePlaySession.id);
+        try {
+            await updateDoc(sessionDocRef, { status: "finished" });
+            setRolePlaySession(null);
+            setMessages([]);
+            setPartnerId('');
+            showMessage("Role play session ended.");
+        } catch (error) {
+            console.error("Error ending role play:", error);
+            showMessage(`Error ending role play: ${error.message}`);
+        }
+    };
+
+    return (
+        <div className="p-6 space-y-4">
+            <button
+                onClick={onBack}
+                className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out mb-4"
+            >
+                ← Back to Home
+            </button>
+            <h2 className="text-3xl font-bold text-center text-blue-100">Role Play</h2>
+
+            {!rolePlaySession ? (
+                <div className="bg-blue-800 p-4 rounded-lg shadow-lg space-y-4">
+                    <p className="text-blue-200 text-center">Your User ID: <span className="font-mono break-all text-white">{userId}</span></p>
+                    <input
+                        type="text"
+                        placeholder="Enter partner's User ID"
+                        value={partnerId}
+                        onChange={(e) => setPartnerId(e.target.value)}
+                        className="w-full p-3 rounded-lg bg-blue-700 text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <button
+                        onClick={startRolePlay}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        Start Role Play
+                    </button>
+                </div>
+            ) : (
+                <div className="bg-blue-800 p-4 rounded-lg shadow-lg flex flex-col h-[500px]">
+                    <h3 className="text-xl font-semibold text-blue-100 mb-2 text-center">
+                        Session with: {rolePlaySession.user1Id === userId ? rolePlaySession.user2Id : rolePlaySession.user1Id}
+                    </h3>
+                    <p className="text-blue-200 text-center text-sm mb-3">Status: <span className={`font-bold ${rolePlaySession.status === 'active' ? 'text-green-400' : 'text-yellow-400'}`}>{rolePlaySession.status.toUpperCase()}</span></p>
+
+                    <div className="flex-1 overflow-y-auto p-3 bg-blue-700 rounded-lg mb-4 space-y-3 custom-scrollbar">
+                        {messages.length === 0 && <p className="text-blue-300 text-center">No messages yet. Start chatting!</p>}
+                        {messages.map((msg, index) => (
+                            <div
+                                key={index}
+                                className={`flex ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`}
+                            >
+                                <div className={`max-w-[80%] p-3 rounded-lg shadow-md ${
+                                    msg.senderId === userId ? 'bg-blue-500 text-white' : 'bg-gray-600 text-white'
+                                }`}>
+                                    <p className="text-xs text-gray-200 mb-1">{msg.senderId === userId ? 'You' : 'Partner'}</p>
+                                    <p>{msg.text}</p>
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </div>
+
+                    <div className="flex">
+                        <input
+                            type="text"
+                            placeholder="Type your message..."
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyPress={(e) => { if (e.key === 'Enter') sendMessage(); }}
+                            className="flex-1 p-3 rounded-l-lg bg-blue-700 text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        <button
+                            onClick={sendMessage}
+                            className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-r-lg shadow transition duration-300 ease-in-out"
+                        >
+                            Send
+                        </button>
+                    </div>
+                    <button
+                        onClick={endRolePlay}
+                        className="mt-4 w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                    >
+                        End Role Play
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
